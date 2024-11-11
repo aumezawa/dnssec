@@ -9,7 +9,7 @@ import re
 import struct
 import sys
 
-__version__ = "0.0.1-beta"
+__version__ = "0.0.1"
 __author__  = "aumezawa"
 
 
@@ -57,6 +57,8 @@ def convert_record_type(type_str):
     """
     if type_str == "A":
         type_int = 1
+    elif type_str == "NS":
+        type_int = 2
     elif type_str == "DS":
         type_int = 43
     elif type_str == "RRSIG":
@@ -101,17 +103,20 @@ def encode_name(name_str):
     -------
     encoded_name: bytes
     """
-    if name_str.endswith(".") is False:
-        name_str += "."
     encoded_name = bytes()
-    for chunk in name_str.split("."):
-        encoded_name += struct.pack("B", len(chunk)) + chunk.encode()
+    if name_str == ".":
+        encoded_name += struct.pack("B", 0)
+    else:
+        if name_str.endswith(".") is False:
+            name_str += "."
+        for chunk in name_str.split("."):
+            encoded_name += struct.pack("B", len(chunk)) + chunk.encode()
     #
     return encoded_name
 
 
 ### ref: [RFC 1035 Section 3.2.1](https://datatracker.ietf.org/doc/html/rfc1035#section-3.2.1)
-def input_record(input_type):
+def input_record(input_type, index = 0):
     """
     Parameters
     ----------
@@ -127,7 +132,10 @@ def input_record(input_type):
     """
     RECORD_FIELDS = 5
     #
+    if index >= 1:
+        print(f"#{ index }")
     fleids = re.sub(r"\s+", " ", input(f"please input { input_type } record: ")).split(" ")
+    print()
     if len(fleids) < RECORD_FIELDS:
         print("Invalid. Record format is: <owner_name> <ttl> <class_code> <record_type> <data...>")
         sys.exit(-1)
@@ -149,8 +157,12 @@ def input_record(input_type):
 
 
 ### ref: [RFC 1035 Section 3.4.1](https://datatracker.ietf.org/doc/html/rfc1035#section-3.4.1)
-def input_a_record():
+def input_a_record(index = 0):
     """
+    Parameters
+    ----------
+    index: int
+
     Returns
     -------
     owner_name: str
@@ -161,7 +173,7 @@ def input_a_record():
     """
     A_RDATA_FIELDS = 1
     #
-    (owner_name, ttl, class_code, record_type, rdata) = input_record("A")
+    (owner_name, ttl, class_code, record_type, rdata) = input_record("A", index)
     if len(rdata) < A_RDATA_FIELDS:
         print("Invalid. A record format is: <owner_name> <ttl> <class_code> <record_type> <ip_address>")
         sys.exit(-1)
@@ -174,9 +186,43 @@ def input_a_record():
     return (owner_name, ttl, class_code, record_type, ip_address)
 
 
-### ref: [RFC 4034 Section 5.1](https://datatracker.ietf.org/doc/html/rfc4034#section-5.1)
-def input_ds_record():
+### ref: [RFC 1035 Section 3.3.11](https://datatracker.ietf.org/doc/html/rfc1035#section-3.3.11)
+def input_ns_record(index = 0):
     """
+    Parameters
+    ----------
+    index: int
+
+    Returns
+    -------
+    owner_name: str
+    ttl: int
+    class_code: int
+    record_type: int
+    nsd_name: str
+    """
+    NS_RDATA_FIELDS = 1
+    #
+    (owner_name, ttl, class_code, record_type, rdata) = input_record("NS", index)
+    if len(rdata) < NS_RDATA_FIELDS:
+        print("Invalid. A record format is: <owner_name> <ttl> <class_code> <record_type> <nsd_name>")
+        sys.exit(-1)
+    #
+    try:
+        nsd_name = rdata[0]
+    except:
+        error_handling()
+    #
+    return (owner_name, ttl, class_code, record_type, nsd_name)
+
+
+### ref: [RFC 4034 Section 5.1](https://datatracker.ietf.org/doc/html/rfc4034#section-5.1)
+def input_ds_record(index = 0):
+    """
+    Parameters
+    ----------
+    index: int
+
     Returns
     -------
     owner_name: str
@@ -190,7 +236,7 @@ def input_ds_record():
     """
     DS_RDDTA_FIELDS = 4
     #
-    (owner_name, ttl, class_code, record_type, rdata) = input_record("DS")
+    (owner_name, ttl, class_code, record_type, rdata) = input_record("DS", index)
     if len(rdata) < DS_RDDTA_FIELDS:
         print("Invalid. DS record format is: <owner_name> <ttl> <class_code> <record_type> <keytag> <algorithm> <digest_type> <digest>")
         sys.exit(-1)
@@ -229,7 +275,7 @@ def input_rrsig_record():
     #
     (owner_name, ttl, class_code, record_type, rdata) = input_record("RRSIG")
     if len(rdata) < RRSIG_RDDTA_FIELDS:
-        print("Invalid. RRSIG record format is: <owner_name> <ttl> <class_code> <record_type> <target_record_type> <algorithm> <labels> <original_ttl> <expiration> <inception> <keytag> <signer> <data...>")
+        print("Invalid. RRSIG record format is: <owner_name> <ttl> <class_code> <record_type> <target_record_type> <algorithm> <labels> <original_ttl> <expiration> <inception> <keytag> <signer_name> <signature>")
         sys.exit(-1)
     #
     try:
@@ -249,8 +295,12 @@ def input_rrsig_record():
 
 
 ### ref: [RFC 4045 Section 2.1](https://datatracker.ietf.org/doc/html/rfc4034#section-2.1)
-def input_dnskey_record():
+def input_dnskey_record(index = 0):
     """
+    Parameters
+    ----------
+    index: int
+
     Returns
     -------
     owner_name: str
@@ -264,7 +314,7 @@ def input_dnskey_record():
     """
     DNSKEY_RDATA_FIELDS = 4
     #
-    (owner_name, ttl, class_code, record_type, rdata) = input_record("DNSKEY")
+    (owner_name, ttl, class_code, record_type, rdata) = input_record("DNSKEY", index)
     if len(rdata) < DNSKEY_RDATA_FIELDS:
         print("Invalid. DNSKEY record format is: <owner_name> <ttl> <class_code> <record_type> <flag> <protocol> <algorithm> <public_key>")
         sys.exit(-1)
@@ -295,6 +345,22 @@ def encode_a_rdata(ip_address):
     for octet in ip_address.split("."):
         a_rdata += struct.pack("B", int(octet))
     return a_rdata
+
+
+### ref: [RFC 1035 Section 3.3.11](https://datatracker.ietf.org/doc/html/rfc1035#section-3.3.11)
+def encode_ns_rdata(nsd_name):
+    """
+    Parameters
+    ----------
+    nsd_name: str
+
+    Returns
+    -------
+    ns_rdate: byte
+    """
+    ns_rdata = bytes()
+    ns_rdata += encode_name(nsd_name)
+    return ns_rdata
 
 
 ### ref: [RFC 4034 Section 5.1](https://datatracker.ietf.org/doc/html/rfc4034#section-5.1)
@@ -521,14 +587,14 @@ def validate_rrsig_signature(algorithm, rdata_rr, signature, dnskey_public_key):
 
 ################################################################################
 
-def validate_ds_digest_main():
+def validate_ksk_with_ds_digest_main():
     """
     Returns
     -------
     result: boolean
     """
-    (_, _, _, _, keytag, _, digest_type, digest) = input_ds_record()
     (owner_name, _, _, _, flag, protocol, algorithm, public_key) = input_dnskey_record()
+    (_, _, _, _, keytag, _, digest_type, digest) = input_ds_record()
     #
     dnskey_rdata = encode_dnskey_rdata(flag, protocol, algorithm, public_key)
     #
@@ -538,55 +604,99 @@ def validate_ds_digest_main():
     #
     result = validate_ds_digest(owner_name, digest_type, digest, dnskey_rdata)
     result_str = "Valid" if result else "Invalid"
-    print()
-    print(f"The digest of DS record is: { result_str }")
+    print(f"The KSK is: { result_str }")
     return result
 
 
 def validate_a_record_signature_main():
-    # TODO: should support multi records
     """
     Returns
     -------
     result: boolean
     """
     (_, _, _, _, target_record_type, algorithm, labels, original_ttl, expiration, inception, keytag, signer_name, signature) = input_rrsig_record()
-    (owner_name, _, class_code, record_type, ip_address) = input_a_record()
-    (_, _, _, _, _, _, _, public_key) = input_dnskey_record()
     #
     ### ref: (RFC 4043 Section 3.1.8.1)[https://datatracker.ietf.org/doc/html/rfc4034#section-3.1.8.1]
     rrsig_rdata = encode_rrsig_rdata(target_record_type, algorithm, labels, original_ttl, expiration, inception, keytag, signer_name)
     #
-    a_rdata = encode_a_rdata(ip_address)
-    rr = encode_rr(owner_name, record_type, class_code, original_ttl, a_rdata)
+    try:
+        num_of_a = int(input("How many A records are there?: "))
+        print()
+    except:
+        error_handling()
     #
-    result = validate_rrsig_signature(algorithm, rrsig_rdata + rr, signature, public_key)
+    rrs = bytes()
+    for index in range(num_of_a):
+        (owner_name, _, class_code, record_type, ip_address) = input_a_record(index + 1)
+        a_rdata = encode_a_rdata(ip_address)
+        rrs += encode_rr(owner_name, record_type, class_code, original_ttl, a_rdata)
+    #
+    (_, _, _, _, _, _, _, public_key) = input_dnskey_record()
+    #
+    result = validate_rrsig_signature(algorithm, rrsig_rdata + rrs, signature, public_key)
     result_str = "Valid" if result else "Invalid"
-    print()
+    print(f"The signature of A record is: { result_str }")
+    return result
+
+
+def validate_ns_record_signature_main():
+    """
+    Returns
+    -------
+    result: boolean
+    """
+    (_, _, _, _, target_record_type, algorithm, labels, original_ttl, expiration, inception, keytag, signer_name, signature) = input_rrsig_record()
+    #
+    ### ref: (RFC 4043 Section 3.1.8.1)[https://datatracker.ietf.org/doc/html/rfc4034#section-3.1.8.1]
+    rrsig_rdata = encode_rrsig_rdata(target_record_type, algorithm, labels, original_ttl, expiration, inception, keytag, signer_name)
+    #
+    try:
+        num_of_ns = int(input("How many NS records are there?: "))
+        print()
+    except:
+        error_handling()
+    #
+    rrs = bytes()
+    for index in range(num_of_ns):
+        (owner_name, _, class_code, record_type, nsd_name) = input_ns_record(index + 1)
+        ns_rdata = encode_ns_rdata(nsd_name)
+        rrs += encode_rr(owner_name, record_type, class_code, original_ttl, ns_rdata)
+    #
+    (_, _, _, _, _, _, _, public_key) = input_dnskey_record()
+    #
+    result = validate_rrsig_signature(algorithm, rrsig_rdata + rrs, signature, public_key)
+    result_str = "Valid" if result else "Invalid"
     print(f"The signature of A record is: { result_str }")
     return result
 
 
 def validate_ds_record_signature_main():
-    # TODO: must do unit test
     """
     Returns
     -------
     result: boolean
     """
     (_, _, _, _, target_record_type, algorithm, labels, original_ttl, expiration, inception, keytag, signer_name, signature) = input_rrsig_record()
-    (owner_name, _, class_code, record_type, keytag, ds_algorithm, digest_type, digest) = input_ds_record()
-    (_, _, _, _, _, _, _, public_key) = input_dnskey_record()
     #
     ### ref: (RFC 4043 Section 3.1.8.1)[https://datatracker.ietf.org/doc/html/rfc4034#section-3.1.8.1]
     rrsig_rdata = encode_rrsig_rdata(target_record_type, algorithm, labels, original_ttl, expiration, inception, keytag, signer_name)
     #
-    ds_rdata = encode_ds_rdata(keytag, ds_algorithm, digest_type, digest)
-    rr = encode_rr(owner_name, record_type, class_code, original_ttl, ds_rdata)
+    try:
+        num_of_ds = int(input("How many DS records are there?: "))
+        print()
+    except:
+        error_handling()
     #
-    result = validate_rrsig_signature(algorithm, rrsig_rdata + rr, signature, public_key)
+    rrs = bytes()
+    for index in range(num_of_ds):
+        (owner_name, _, class_code, record_type, keytag, ds_algorithm, digest_type, digest) = input_ds_record(index + 1)
+        ds_rdata = encode_ds_rdata(keytag, ds_algorithm, digest_type, digest)
+        rrs += encode_rr(owner_name, record_type, class_code, original_ttl, ds_rdata)
+    #
+    (_, _, _, _, _, _, _, public_key) = input_dnskey_record()
+    #
+    result = validate_rrsig_signature(algorithm, rrsig_rdata + rrs, signature, public_key)
     result_str = "Valid" if result else "Invalid"
-    print()
     print(f"The signature of DS record is: { result_str }")
     return
 
@@ -598,21 +708,27 @@ def validate_dnskey_record_signature_main():
     result: boolean
     """
     (_, _, _, _, target_record_type, algorithm, labels, original_ttl, expiration, inception, keytag, signer_name, signature) = input_rrsig_record()
-    (zsk_owner_name, _, zsk_class_code, zsk_record_type, zsk_flag, zsk_protocol, zsk_algorithm, zsk_public_key) = input_dnskey_record()
-    (ksk_owner_name, _, ksk_class_code, ksk_record_type, ksk_flag, ksk_protocol, ksk_algorithm, ksk_public_key) = input_dnskey_record()
     #
     ### ref: (RFC 4043 Section 3.1.8.1)[https://datatracker.ietf.org/doc/html/rfc4034#section-3.1.8.1]
     rrsig_rdata = encode_rrsig_rdata(target_record_type, algorithm, labels, original_ttl, expiration, inception, keytag, signer_name)
     #
-    zsk_dnskey_rdata = encode_dnskey_rdata(zsk_flag, zsk_protocol, zsk_algorithm, zsk_public_key)
-    zsk_rr = encode_rr(zsk_owner_name, zsk_record_type, zsk_class_code, original_ttl, zsk_dnskey_rdata)
+    try:
+        num_of_dnskey = int(input("How many DNSKEY records are there?: "))
+        print()
+    except:
+        error_handling()
     #
-    ksk_dnskey_rdata = encode_dnskey_rdata(ksk_flag, ksk_protocol, ksk_algorithm, ksk_public_key)
-    ksk_rr = encode_rr(ksk_owner_name, ksk_record_type, ksk_class_code, original_ttl, ksk_dnskey_rdata)
+    rrs = bytes()
+    for index in range(num_of_dnskey):
+        (owner_name, _, class_code, record_type, dnskey_flag, dnskey_protocol, dnskey_algorithm, dnskey_public_key) = input_dnskey_record(index + 1)
+        dnskey_rdata = encode_dnskey_rdata(dnskey_flag, dnskey_protocol, dnskey_algorithm, dnskey_public_key)
+        rrs += encode_rr(owner_name, record_type, class_code, original_ttl, dnskey_rdata)
     #
-    result = validate_rrsig_signature(algorithm, rrsig_rdata + zsk_rr + ksk_rr, signature, ksk_public_key)
+    print("Re-input DNSKEY record which will be used as public key")
+    (_, _, _, _, _, _, _, public_key) = input_dnskey_record()
+    #
+    result = validate_rrsig_signature(algorithm, rrsig_rdata + rrs, signature, public_key)
     result_str = "Valid" if result else "Invalid"
-    print()
     print(f"The signature of DNSKEY record is: { result_str }")
     return result
 
@@ -635,12 +751,13 @@ def extract_keytag_from_dnskey_main():
 
 MENU = """
 Menu:
-1) Verify digest of DS record with KSK
-2) Verify signature of single A record with ZSK
-3) Verify signature of DS record with ZSK (not validated)
-4) Verify signature of DNSKEY record with KSK
-...
-9) Extract Key Tag from ZSK/KSK
+0) Extract Key Tag from ZSK/KSK
+---
+1) Verify signature of DNSKEY record with KSK
+2) Verify signature of DS record with ZSK
+3) Verify KSK with the digest of DS record
+4) Verify signature of A record with ZSK
+5) Verify signature of NS record with ZSK
 """
 def main():
     print(MENU)
@@ -650,16 +767,18 @@ def main():
     except:
         error_handling()
     #
-    if select == 1:
-        validate_ds_digest_main()
-    elif select == 2:
-        validate_a_record_signature_main()
-    elif select == 3:
-        validate_ds_record_signature_main()
-    elif select == 4:
-        validate_dnskey_record_signature_main()
-    elif select == 9:
+    if select == 0:
         extract_keytag_from_dnskey_main()
+    elif select == 1:
+        validate_dnskey_record_signature_main()
+    elif select == 2:
+        validate_ds_record_signature_main()
+    elif select == 3:
+        validate_ksk_with_ds_digest_main()
+    elif select == 4:
+        validate_a_record_signature_main()
+    elif select == 5:
+        validate_ns_record_signature_main()
     else:
         print("Invalid. You chose an unsupport menu.")
     return
@@ -671,27 +790,77 @@ if __name__ == "__main__":
 
 
 """ TEST RECORD DATA
-example.com. 86400 IN DS 370 13 2 BE74359954660069D5C63D200C39F5603827D7DD02B56F120EE9F3A86764247C
 
-example.com. 3600 IN DNSKEY 256 3 13 OtuN/SL9sE+SDQ0tOLeezr1KzUNi77FflTjxQylUhm3V 7m13Vz9tYQucSGK0pyxISo9CQsszubAwJSypq3li3g==
-example.com. 3600 IN DNSKEY 257 3 13 kXKkvWU3vGYfTJGl3qBd4qhiWp5aRs7YtkCJxD2d+t7K Xqwahww5IgJtxJT2yFItlggazyfXqJEVOmMJ3qT0tQ==
+. 172800 IN DNSKEY 256 3 8 AwEAAc0SunbHdS0KFEyZbYII/+tzsrNzIwurKxmJA+0fhAYlTPA/5LrM GkGEqvvufzM0w/CaVtdm5eWkZYQcsoSKT5bycx0C4jxnLEb3ZiZUQSqu 1rWcKGF1fj/GyDWLkOu7a5h3el+gPmglj/4l4V31ugNYfqYq84vCB+3D 6Sodrd+85KyonnzWJ8cS7aZ57x0d0sGqsAKA+6tRnIXjVNVe7Ro5xJuz 8IR7rOxdzfuRLriN+Z00EL3U5E7s9SISU/hDh7Q7N70W1mLMc1o2+tCR GjEWrw4wmCWMzc1kegbLES/dUOWFvPjJz0+AEeWDhd2GqtXk02BzAhdf eIAEIv68FTs=
+. 172800 IN DNSKEY 257 3 8 AwEAAaz/tAm8yTn4Mfeh5eyI96WSVexTBAvkMgJzkKTOiW1vkIbzxeF3 +/4RgWOq7HrxRixHlFlExOLAJr5emLvN7SWXgnLh4+B5xQlNVz8Og8kv ArMtNROxVQuCaSnIDdD5LKyWbRd2n9WGe2R8PzgCmr3EgVLrjyBxWezF 0jLHwVN8efS3rCj/EWgvIWgb9tarpVUDK/b58Da+sqqls3eNbuv7pr+e oZG+SrDK6nWeL3c6H5Apxz7LjVc1uTIdsIXxuOLYA4/ilBmSVIzuDWfd RUfhHdY6+cn8HFRm+2hM8AnXGXws9555KrUB5qihylGa8subX2Nn6UwN R1AkUTV74bU=
+. 172800 IN RRSIG DNSKEY 8 0 172800 20241201000000 20241110000000 20326 . qt8zpbIcJohyfnFxwgMO9lDmZb7FucLDQ02WBcxZLZ2RCyL0JFy4lR8c E4bCEHfMmIVnST+bBTOgKGnXb0gUVMaLeks19V2zpOLQW091g3gzkEGN IPfFepjnOpR6HUsZG856e4vJqT8OPXTT0V+E3b7N9ulzkOr5KesT02hA IA0dAMNLfeFzlM38L/GUAao9REcaaYfn8TwG7fET/eQSAUk2Z8aI+xkx bjYdRGjHblc8aJKOo5oHQCh1PY693pjJkBf/SzzMmU91tg4nrWHPoJrc 45FBi5bqQ1/LvAB7B+/HDQPKIakHxxWmZ+hSmDp0Yn6e3B9ppWAffdaC kJj7gg==
+
+. 484002 IN NS a.root-servers.net.
+. 484002 IN NS b.root-servers.net.
+. 484002 IN NS c.root-servers.net.
+. 484002 IN NS d.root-servers.net.
+. 484002 IN NS e.root-servers.net.
+. 484002 IN NS f.root-servers.net.
+. 484002 IN NS g.root-servers.net.
+. 484002 IN NS h.root-servers.net.
+. 484002 IN NS i.root-servers.net.
+. 484002 IN NS j.root-servers.net.
+. 484002 IN NS k.root-servers.net.
+. 484002 IN NS l.root-servers.net.
+. 484002 IN NS m.root-servers.net.
+. 484002 IN RRSIG NS 8 0 518400 20241124050000 20241111040000 61050 . jgQ3G0mud6ZR/ukMJo8xq1bGbd66kkTxf7tURZEfbSAxZMdKlEh8m0GP yd7xdeR1gFUQbqc8+B0gx1zmzbCe2TrovzyZejL8qTWJDKL/+nrT6qR2 6zYgWh075gDsFYYZiFybxxKQs6j3atsun0CEefw/0KxDtNdh/I3qUgSd 4a0NpwSB3VUkeM1418vpQo7IHacDTACDw9VB7L+JeaOlNARY5q6UptJD fkTT2vLdtiWxdDVy/PycbgpeehgibcBSKqi0YyqwoJ5NJdleR8NFrP5K kFUiCSlDYxQ5Q/ZpeoAS4lm7wJzrVbEHLRam3gpJXCfGusLfuB7bY8z+ v8mBPw==
+
+com. 86400 IN DS 19718 13 2 8ACBB0CD28F41250A80A491389424D341522D946B0DA0C0291F2D3D7 71D7805A
+com. 86400 IN RRSIG DS 8 1 86400 20241124170000 20241111160000 61050 . df091JsunjSyd2Rh1RVpH07FPCugkarUWf362yFQnx85oAK9hKqgSSIc MrGPe1a9Cukb841p+MFzP/7fQ+WL5P787w6oQ1K6/pYFNLj9Ueem/Umg lzf1nQpDD0X+X2zwF7bQ6WKFjLZ0NjmELCmtZOg/vL4ZfZ1jI9vbYnGM dq8Qdt6+pg2cdUmWcBBoNFPDzVRSKxkC4g8XUooka8qrWaGWZ+aYUHzx e5hVHVtQMcoOKefNu+qGqUln//uuudPHsnULDACSJtmcsnJAsVrp5VSM B46/2KVpdaX1ITFbvxclGv+fzwuvMtLO2X7OKzddXZ83xjeBOgYdELJ2 OynhSA==
+
+com. 86400 IN DNSKEY 256 3 13 uugEQOG7/3zv3rVGq43NQTqfmZxWn4fMIpi6ph7JKEvTRwhtw3aIV4dS k+fgpFFmORrKNznT7AIuJKy6P/Mi1Q==
+com. 86400 IN DNSKEY 257 3 13 tx8EZRAd2+K/DJRV0S+hbBzaRPS/G6JVNBitHzqpsGlz8huE61Ms9ANe 6NSDLKJtiTBqfTJWDAywEp1FCsEINQ==
+com. 86400 IN RRSIG DNSKEY 13 1 86400 20241118150235 20241103145735 19718 com. IZbO0s7a+wpAIXAVF4oLxATiRwOM0yitR7+tBihVCf8FmlDVQf92fK1w USuggYfJ+d+25B9Zz5bYqL/DQt3bmw==
+
+com. 172800 IN NS a.gtld-servers.net.
+com. 172800 IN NS b.gtld-servers.net.
+com. 172800 IN NS c.gtld-servers.net.
+com. 172800 IN NS d.gtld-servers.net.
+com. 172800 IN NS e.gtld-servers.net.
+com. 172800 IN NS f.gtld-servers.net.
+com. 172800 IN NS g.gtld-servers.net.
+com. 172800 IN NS h.gtld-servers.net.
+com. 172800 IN NS i.gtld-servers.net.
+com. 172800 IN NS j.gtld-servers.net.
+com. 172800 IN NS k.gtld-servers.net.
+com. 172800 IN NS l.gtld-servers.net.
+com. 172800 IN NS m.gtld-servers.net.
+com. 172800 IN RRSIG NS 13 1 172800 20241117002547 20241109231547 29942 com. lpS1jaImw6HG5hSnYpgnNNmF1Ngv1Gz+WyL1SVfM+Yoo88qd56UWH6WG VP26ZAKq2A4fVBmimK2Ny0aWZOX3gA==
+
+example.com. 86400 IN DS 370 13 2 BE74359954660069D5C63D200C39F5603827D7DD02B56F120EE9F3A8 6764247C
+example.com. 86400 IN RRSIG DS 13 2 86400 20241119012518 20241112001518 29942 com. xDTV+GSyIuGyeLLin8fd12iXoPr5EayvZ2L6xdC2YMjGKkxQksIS7e26 iSR20EVYMPTmdA5Igdb0Eaf+XoA7Ng==
+
+example.com. 3600 IN DNSKEY 256 3 13 OtuN/SL9sE+SDQ0tOLeezr1KzUNi77FflTjxQylUhm3V7m13Vz9tYQuc SGK0pyxISo9CQsszubAwJSypq3li3g==
+example.com. 3600 IN DNSKEY 256 3 13 ai2pvpijJjeNTpBu4yg6T375JqIStPtLABDTAILb+f4J7XpofUNXGQn6 FpQvZ6CARWn2xQapbjGtDRjTf4qYxg==
+example.com. 3600 IN DNSKEY 257 3 13 kXKkvWU3vGYfTJGl3qBd4qhiWp5aRs7YtkCJxD2d+t7KXqwahww5IgJt xJT2yFItlggazyfXqJEVOmMJ3qT0tQ==
+example.com. 3600 IN RRSIG DNSKEY 13 2 3600 20241202171948 20241111065631 370 example.com. gai6TfgY0Xc9OUoE0UgumfKQOnHZuvXzVnznkc806m8oetr6pyoVi6tf PIrUnFHqL7VgQ78dsW5JsXrFmt332A==
 
 example.com. 3600 IN A 93.184.215.14
 example.com. 3600 IN RRSIG A 13 2 3600 20241117173922 20241027165426 42464 example.com. i547XFAHRMLksexkC9j18YvDcsDSE1SNVorFihK5mYWJ /wG4zqh3ELOJ/HiVXQ0hdmgFvMj16XbPQJkqIJjI1Q==
 
 ---
 
-eng-blog.iij.ad.jp. 419 IN A 203.180.155.24
-eng-blog.iij.ad.jp. 1347  IN RRSIG A 8 4 86400 20201217151006 20201117151006 5628 iij.ad.jp. ITYLFLnc7s3rB0aZNVSrCsUNBs3vRztF87XjgFHf6Q8yQ2GPFX72s/w5 m5dUDeV/UJBEwB7udTAPxeNarqaoe/Ot0ExkjVpZ2u5zQXdO//ExbmBs 8YX/xCBTJJX6te0odwpJBzFmL2Ecxs6VNm71/xugV2EKIzzeI/vKLJkY Qhg=
+iij.ad.jp. 1292 IN DS 48472 8 2 7E73B74DD5BF727B67C7D62A2D8CA3C02FECF00DBC2848DB7C57A99B 515D0D0E
 
-iij.ad.jp. 1488 IN  DNSKEY  256 3 8 AwEAAbdSiZ0RxmtsZUbE1v5kJWi3tXYBQYmZZmYVyw5QgSI7zSoOIcdW 2NoSX+rarklHdnBZKHgBE/lylRxxEi5pGQaJFLVEMBbUo5leb9nmikWG +GxWJL6dZic5LIt3hyAZ0r9jNJN/apzbQh16X41X8gE4lMymlMDXRf6W SbfKReW9
-iij.ad.jp. 1488 IN  DNSKEY  257 3 8 AwEAAfByl5y3fBxdJ+ALSWRc55A8Dp8ZBr+7JxJcml1Ys/bmvVRvG72e s+DvOBR1jjS1l1j74e2eP89ClInWPVajZKc4AX69/btKQznfwC35secx Jniud6VctkF35xqfVZZnXOetF4+QtJtSYhVNg/hirc7HuSpgnzggqt75 X2qaA6THYR9oVBuV+Bu/CrN+KV3qs//r0Fcr7b6Q2VMRWWZe+uqFy5ij PUQq+nXGHgpYxY1CgWH4wRK8WWzUXzE55otuajaBhTH3pi7tz9nKqi7J gBs/l051Ezg7rFfrj857kprMWUu5oacLs3WfZOA0T6fx8aO792HkgEEr Th0LvVWVMqU=
+iij.ad.jp. 1488 IN DNSKEY 256 3 8 AwEAAbdSiZ0RxmtsZUbE1v5kJWi3tXYBQYmZZmYVyw5QgSI7zSoOIcdW 2NoSX+rarklHdnBZKHgBE/lylRxxEi5pGQaJFLVEMBbUo5leb9nmikWG +GxWJL6dZic5LIt3hyAZ0r9jNJN/apzbQh16X41X8gE4lMymlMDXRf6W SbfKReW9
+iij.ad.jp. 1488 IN DNSKEY 257 3 8 AwEAAfByl5y3fBxdJ+ALSWRc55A8Dp8ZBr+7JxJcml1Ys/bmvVRvG72e s+DvOBR1jjS1l1j74e2eP89ClInWPVajZKc4AX69/btKQznfwC35secx Jniud6VctkF35xqfVZZnXOetF4+QtJtSYhVNg/hirc7HuSpgnzggqt75 X2qaA6THYR9oVBuV+Bu/CrN+KV3qs//r0Fcr7b6Q2VMRWWZe+uqFy5ij PUQq+nXGHgpYxY1CgWH4wRK8WWzUXzE55otuajaBhTH3pi7tz9nKqi7J gBs/l051Ezg7rFfrj857kprMWUu5oacLs3WfZOA0T6fx8aO792HkgEEr Th0LvVWVMqU=
 iij.ad.jp. 2176 IN RRSIG DNSKEY 8 3 86400 20201217151006 20201117151006 48472 iij.ad.jp. IvflOJImlu9iSR7LO80wv9o4FJsmy0UDB1gmIPzbqaTIa+z9ePG+tSYa z6HEck75SWWeZeXM0zbAuYX5/had7qTh+IFhO1m9GcIg9+KTdHrKR9jP 9DuVvk3IGJXTpO/L5fPfwsFPrSqfktO9ug6mnwrXshqKIk16NcTggpdd k22Wt1ksDDgZ/61p9j5Zk0CTR2t8/I/rwCcWc7zUsyLAF2rbcBufpsn/ PEz/qPnCgFRjSRkeDln0MaX9NH+48A5vYbthLhtGgc2pviIACc6EYaw2 HSggSD2zR1mJLy7P4APvgu1ijSKXpgF4SpRmhqeuYLkGMbvKnK87N5LK vL7VKg==
-"""
 
-""" TEST RRSIG A RAW DATA
-00000000  00 01 08 04 00 01 51 80  5f db 74 ce 5f b3 e7 ce  |......Q._.t._...|
-00000010  15 fc 03 69 69 6a 02 61  64 02 6a 70 00 08 65 6e  |...iij.ad.jp..en|
-00000020  67 2d 62 6c 6f 67 03 69  69 6a 02 61 64 02 6a 70  |g-blog.iij.ad.jp|
-00000030  00 00 01 00 01 00 01 51  80 00 04 cb b4 9b 18     |.......Q.......|
+eng-blog.iij.ad.jp. 419 IN A 203.180.155.24
+eng-blog.iij.ad.jp. 1347 IN RRSIG A 8 4 86400 20201217151006 20201117151006 5628 iij.ad.jp. ITYLFLnc7s3rB0aZNVSrCsUNBs3vRztF87XjgFHf6Q8yQ2GPFX72s/w5 m5dUDeV/UJBEwB7udTAPxeNarqaoe/Ot0ExkjVpZ2u5zQXdO//ExbmBs 8YX/xCBTJJX6te0odwpJBzFmL2Ecxs6VNm71/xugV2EKIzzeI/vKLJkY Qhg=
+
+---
+
+dnstests.ovh. 2954 IN DNSKEY 256 3 8 AwEAAc9juwZVMUrdjPIxMPuOk+ZnVhv+i16B3TTxj1Ft 5ABDEbiXyfljJopTCQgmJ4EcNDubhZKezTqGsbpaErw8 8yqFwzviv2/U9Mw+Vq1zbS29Hl6XzyWPlnYryXcyVDEw OZlsK0hw6d7A6Xcjjf2srnxpQHpO9pG+etFZxSSEV49j
+dnstests.ovh. 2954 IN DNSKEY 257 3 8 AwEAAZ5F0TSR8PWTrADtdlTcuGWBZ1ehOHy7RtX/ZyA6 WQSU+59I8PFWQ6ddD4FX7LfNcaPSd10vjZKmGT9fB8uf IY9xHHrH2zGc6jEI7TkqDOjutVRsBhhis+AO/HDjL9i0 tpyoCX3/wHVZ9U0iOIHaR4+vlVJfja6EvuL4s0zhzaY0 amP1R8af0E1Rcvyi9S6fFOtECZOrqKlwI9OPQneQ2gD4 uXWg97o1kuBvxSg/Ze5NsAIsJu3oShxBPUNmW6hwP8FM tbmft4MqpJ3xiI03FN2t2PwgO3cvCYlyBJRZqo9nqLAz yYheVdoMuBP024bXF1HFDo2n7jZMuDrW7mMfPK8=
+dnstests.ovh. 2954 IN RRSIG DNSKEY 8 2 3600 20200925080215 20200826080215 44329 dnstests.ovh. k/huKVd5Skc8PE1CgHl1/MCEjZs6hH1DlLYGHZxG97YK YBSwvWQoXGG6ObZKJYCWVqDJWvdz81K7XHLvK34g3AwB NyI62Aw00GiaJzpFCkKU+jTVPeVvDKpAKGQxPziWCL/4 Buj230YyDm38V4amxAeBOz5FcvD8eDu6XYMx4ygvJ3XF M7zojtsbqwg7IBJPJUURNfpQi8MbJivelXbh2CJACteB 8zd2dsj0eZRTLulC15qr7R7zBQqJ8CVuPAVHBYfy2Nu/ VE2QSe2Q4zzns9TUH/6/g9f8RDMNDhT+Z1lbsaJg9EzH x4bqLfjEjnqhrzdS/Fc02e7bILe9YGQ5SQ==
+
+dnstests.ovh. 3600 IN A 213.186.33.5
+dnstests.ovh. 3600 IN RRSIG A 8 2 3600 20200925080215 20200826080215 50238 dnstests.ovh. AUz7u4Sq0EkSUq5kR0beowmMuscbzGdb3NI/OhCG8Ow0Z3CqgG0/94eR 6pbG7YJwvCFBU1bQDklLYEfc4mg41VeAVY4xPSv0O76/hEZsVKcBOGlT nKy3wV4ft8ykV1Jl+5q2eJAaZRoBSvHuRItbM2HCyghhDW0gKBy5rqOq BlM=
+
 """

@@ -3,12 +3,13 @@
 from __future__ import print_function
 import base64
 import datetime
+import ecdsa ## must be installed by "python -m pip install ecdsa"
 import hashlib
 import re
 import struct
 import sys
 
-__version__ = "0.0.1-alpha"
+__version__ = "0.0.1-beta"
 __author__  = "aumezawa"
 
 
@@ -27,7 +28,7 @@ def error_handling():
 
 def date_to_iso_format(date):
     """
-    Convert "YYYYMMDDhhmmss" to "YYYY-MM-DDThh:mm:ss+00:00Z" for datetime
+    Converting "YYYYMMDDhhmmss" to "YYYY-MM-DDThh:mm:ss+00:00Z" for datetime
 
     Parameters
     ----------
@@ -42,8 +43,8 @@ def date_to_iso_format(date):
 
 ################################################################################
 
-### [RFC 1035 Section 3.2.2](https://datatracker.ietf.org/doc/html/rfc1035#section-3.2.2)
-### [RFC 4034 Section 7](https://datatracker.ietf.org/doc/html/rfc4034#section-7)
+### ref: [RFC 1035 Section 3.2.2](https://datatracker.ietf.org/doc/html/rfc1035#section-3.2.2)
+### ref: [RFC 4034 Section 7](https://datatracker.ietf.org/doc/html/rfc4034#section-7)
 def convert_record_type(type_str):
     """
     Parameters
@@ -69,7 +70,7 @@ def convert_record_type(type_str):
     return type_int
 
 
-### [RFC 1035 Section 3.2.4](https://datatracker.ietf.org/doc/html/rfc1035#section-3.2.4)
+### ref: [RFC 1035 Section 3.2.4](https://datatracker.ietf.org/doc/html/rfc1035#section-3.2.4)
 def convert_class_code(class_str):
     """
     Parameters
@@ -173,7 +174,7 @@ def input_a_record():
     return (owner_name, ttl, class_code, record_type, ip_address)
 
 
-## ref: [RFC 4034 Section 5.1](https://datatracker.ietf.org/doc/html/rfc4034#section-5.1)
+### ref: [RFC 4034 Section 5.1](https://datatracker.ietf.org/doc/html/rfc4034#section-5.1)
 def input_ds_record():
     """
     Returns
@@ -390,14 +391,7 @@ def encode_rr(owner_name, record_type, class_code, original_ttl, rdata):
     rr += struct.pack("!H", record_type)
     rr += struct.pack("!H", class_code)
     rr += struct.pack("!I", original_ttl)
-    if record_type == convert_record_type("A"):
-        rr += struct.pack("!H", 4)
-    # TODO
-    #elif record_type == convert_record_type("DS"):
-    #elif record_type == convert_record_type("DNSKEY"):
-    else:
-        print(f"Unsupported record type: { record_type }")
-        sys.exit(-1)
+    rr += struct.pack("!H", len(rdata))
     rr += rdata
     return rr
 
@@ -425,6 +419,7 @@ def extract_keytag_from_dnskey(dnskey_rdate):
     keytag = ac & 0xFFFF
     return keytag
 
+################################################################################
 
 ### ref: [RFC 4034 Section 5.1.4](https://datatracker.ietf.org/doc/html/rfc4034#section-5.1.4)
 def validate_ds_digest(owner_name, digest_type, digest, dnskey_rdata):
@@ -455,7 +450,7 @@ def validate_ds_digest(owner_name, digest_type, digest, dnskey_rdata):
     return result
 
 
-def validate_rrsig_signature(algorithm, hash, signature, dnskey_public_key):
+def validate_rrsig_signature(algorithm, rdata_rr, signature, dnskey_public_key):
     """
     Parameters
     ----------
@@ -510,17 +505,21 @@ def validate_rrsig_signature(algorithm, hash, signature, dnskey_public_key):
         #
         decoded_hash = decoded[index:]
         #
-        if decoded_hash == hash:
+        original_hash = bytes.fromhex(hashlib.sha256(rdata_rr).hexdigest())
+        #
+        if decoded_hash == original_hash:
             result = True
     elif algorithm == ALGORITHM_ECDSAP256SHA256:
-        # TODO
-        pass
+        verifying_key = ecdsa.VerifyingKey.from_string(dnskey_public_key, curve=ecdsa.NIST256p, hashfunc=hashlib.sha256)
+        if verifying_key.verify(signature, rdata_rr, hashlib.sha256):
+            result = True
     else:
         print(f"Unsupported algorithm type: { algorithm }")
         sys.exit(-1)
     #
     return result
 
+################################################################################
 
 def validate_ds_digest_main():
     """
@@ -538,46 +537,131 @@ def validate_ds_digest_main():
         sys.exit(-1)
     #
     result = validate_ds_digest(owner_name, digest_type, digest, dnskey_rdata)
-    print(f"validate_ds_digest_main: { result }")
+    result_str = "Valid" if result else "Invalid"
+    print()
+    print(f"The digest of DS record is: { result_str }")
     return result
 
 
 def validate_a_record_signature_main():
+    # TODO: should support multi records
     """
     Returns
     -------
     result: boolean
     """
-    (owner_name, _, class_code, record_type, ip_address) = input_a_record()
     (_, _, _, _, target_record_type, algorithm, labels, original_ttl, expiration, inception, keytag, signer_name, signature) = input_rrsig_record()
+    (owner_name, _, class_code, record_type, ip_address) = input_a_record()
     (_, _, _, _, _, _, _, public_key) = input_dnskey_record()
     #
     ### ref: (RFC 4043 Section 3.1.8.1)[https://datatracker.ietf.org/doc/html/rfc4034#section-3.1.8.1]
-    a_rdata = encode_a_rdata(ip_address)
     rrsig_rdata = encode_rrsig_rdata(target_record_type, algorithm, labels, original_ttl, expiration, inception, keytag, signer_name)
-    rr = encode_rr(owner_name, record_type, class_code, original_ttl, a_rdata)
-    hash = bytes.fromhex(hashlib.sha256(rrsig_rdata + rr).hexdigest())
-    print((rrsig_rdata + rr).hex())
     #
-    result = validate_rrsig_signature(algorithm, hash, signature, public_key)
-    print(f"validate_a_record_main: { result }")
+    a_rdata = encode_a_rdata(ip_address)
+    rr = encode_rr(owner_name, record_type, class_code, original_ttl, a_rdata)
+    #
+    result = validate_rrsig_signature(algorithm, rrsig_rdata + rr, signature, public_key)
+    result_str = "Valid" if result else "Invalid"
+    print()
+    print(f"The signature of A record is: { result_str }")
     return result
 
 
 def validate_ds_record_signature_main():
-    # TODO
+    # TODO: must do unit test
+    """
+    Returns
+    -------
+    result: boolean
+    """
+    (_, _, _, _, target_record_type, algorithm, labels, original_ttl, expiration, inception, keytag, signer_name, signature) = input_rrsig_record()
+    (owner_name, _, class_code, record_type, keytag, ds_algorithm, digest_type, digest) = input_ds_record()
+    (_, _, _, _, _, _, _, public_key) = input_dnskey_record()
+    #
+    ### ref: (RFC 4043 Section 3.1.8.1)[https://datatracker.ietf.org/doc/html/rfc4034#section-3.1.8.1]
+    rrsig_rdata = encode_rrsig_rdata(target_record_type, algorithm, labels, original_ttl, expiration, inception, keytag, signer_name)
+    #
+    ds_rdata = encode_ds_rdata(keytag, ds_algorithm, digest_type, digest)
+    rr = encode_rr(owner_name, record_type, class_code, original_ttl, ds_rdata)
+    #
+    result = validate_rrsig_signature(algorithm, rrsig_rdata + rr, signature, public_key)
+    result_str = "Valid" if result else "Invalid"
+    print()
+    print(f"The signature of DS record is: { result_str }")
     return
 
 
 def validate_dnskey_record_signature_main():
-    # TODO
-    return
+    """
+    Returns
+    -------
+    result: boolean
+    """
+    (_, _, _, _, target_record_type, algorithm, labels, original_ttl, expiration, inception, keytag, signer_name, signature) = input_rrsig_record()
+    (zsk_owner_name, _, zsk_class_code, zsk_record_type, zsk_flag, zsk_protocol, zsk_algorithm, zsk_public_key) = input_dnskey_record()
+    (ksk_owner_name, _, ksk_class_code, ksk_record_type, ksk_flag, ksk_protocol, ksk_algorithm, ksk_public_key) = input_dnskey_record()
+    #
+    ### ref: (RFC 4043 Section 3.1.8.1)[https://datatracker.ietf.org/doc/html/rfc4034#section-3.1.8.1]
+    rrsig_rdata = encode_rrsig_rdata(target_record_type, algorithm, labels, original_ttl, expiration, inception, keytag, signer_name)
+    #
+    zsk_dnskey_rdata = encode_dnskey_rdata(zsk_flag, zsk_protocol, zsk_algorithm, zsk_public_key)
+    zsk_rr = encode_rr(zsk_owner_name, zsk_record_type, zsk_class_code, original_ttl, zsk_dnskey_rdata)
+    #
+    ksk_dnskey_rdata = encode_dnskey_rdata(ksk_flag, ksk_protocol, ksk_algorithm, ksk_public_key)
+    ksk_rr = encode_rr(ksk_owner_name, ksk_record_type, ksk_class_code, original_ttl, ksk_dnskey_rdata)
+    #
+    result = validate_rrsig_signature(algorithm, rrsig_rdata + zsk_rr + ksk_rr, signature, ksk_public_key)
+    result_str = "Valid" if result else "Invalid"
+    print()
+    print(f"The signature of DNSKEY record is: { result_str }")
+    return result
 
 
+def extract_keytag_from_dnskey_main():
+    """
+    Returns
+    -------
+    keytag: int
+    """
+    (_, _, _, _, flag, protocol, algorithm, public_key) = input_dnskey_record()
+    #
+    dnskey_rdata = encode_dnskey_rdata(flag, protocol, algorithm, public_key)
+    keytag = extract_keytag_from_dnskey(dnskey_rdata)
+    #
+    print()
+    print(f"The Key Tag is: { keytag }")
+    return keytag
+
+
+MENU = """
+Menu:
+1) Verify digest of DS record with KSK
+2) Verify signature of single A record with ZSK
+3) Verify signature of DS record with ZSK (not validated)
+4) Verify signature of DNSKEY record with KSK
+...
+9) Extract Key Tag from ZSK/KSK
+"""
 def main():
-    # TODO
-    #validate_ds_digest_main()
-    #validate_a_record_signature_main()
+    print(MENU)
+    try:
+        select = int(input("Choose one of them: "))
+        print()
+    except:
+        error_handling()
+    #
+    if select == 1:
+        validate_ds_digest_main()
+    elif select == 2:
+        validate_a_record_signature_main()
+    elif select == 3:
+        validate_ds_record_signature_main()
+    elif select == 4:
+        validate_dnskey_record_signature_main()
+    elif select == 9:
+        extract_keytag_from_dnskey_main()
+    else:
+        print("Invalid. You chose an unsupport menu.")
     return
 
 
@@ -595,13 +679,14 @@ example.com. 3600 IN DNSKEY 257 3 13 kXKkvWU3vGYfTJGl3qBd4qhiWp5aRs7YtkCJxD2d+t7
 example.com. 3600 IN A 93.184.215.14
 example.com. 3600 IN RRSIG A 13 2 3600 20241117173922 20241027165426 42464 example.com. i547XFAHRMLksexkC9j18YvDcsDSE1SNVorFihK5mYWJ /wG4zqh3ELOJ/HiVXQ0hdmgFvMj16XbPQJkqIJjI1Q==
 
-
+---
 
 eng-blog.iij.ad.jp. 419 IN A 203.180.155.24
-
 eng-blog.iij.ad.jp. 1347  IN RRSIG A 8 4 86400 20201217151006 20201117151006 5628 iij.ad.jp. ITYLFLnc7s3rB0aZNVSrCsUNBs3vRztF87XjgFHf6Q8yQ2GPFX72s/w5 m5dUDeV/UJBEwB7udTAPxeNarqaoe/Ot0ExkjVpZ2u5zQXdO//ExbmBs 8YX/xCBTJJX6te0odwpJBzFmL2Ecxs6VNm71/xugV2EKIzzeI/vKLJkY Qhg=
 
-iij.ad.jp. 1488  IN  DNSKEY  256 3 8 AwEAAbdSiZ0RxmtsZUbE1v5kJWi3tXYBQYmZZmYVyw5QgSI7zSoOIcdW 2NoSX+rarklHdnBZKHgBE/lylRxxEi5pGQaJFLVEMBbUo5leb9nmikWG +GxWJL6dZic5LIt3hyAZ0r9jNJN/apzbQh16X41X8gE4lMymlMDXRf6W SbfKReW9
+iij.ad.jp. 1488 IN  DNSKEY  256 3 8 AwEAAbdSiZ0RxmtsZUbE1v5kJWi3tXYBQYmZZmYVyw5QgSI7zSoOIcdW 2NoSX+rarklHdnBZKHgBE/lylRxxEi5pGQaJFLVEMBbUo5leb9nmikWG +GxWJL6dZic5LIt3hyAZ0r9jNJN/apzbQh16X41X8gE4lMymlMDXRf6W SbfKReW9
+iij.ad.jp. 1488 IN  DNSKEY  257 3 8 AwEAAfByl5y3fBxdJ+ALSWRc55A8Dp8ZBr+7JxJcml1Ys/bmvVRvG72e s+DvOBR1jjS1l1j74e2eP89ClInWPVajZKc4AX69/btKQznfwC35secx Jniud6VctkF35xqfVZZnXOetF4+QtJtSYhVNg/hirc7HuSpgnzggqt75 X2qaA6THYR9oVBuV+Bu/CrN+KV3qs//r0Fcr7b6Q2VMRWWZe+uqFy5ij PUQq+nXGHgpYxY1CgWH4wRK8WWzUXzE55otuajaBhTH3pi7tz9nKqi7J gBs/l051Ezg7rFfrj857kprMWUu5oacLs3WfZOA0T6fx8aO792HkgEEr Th0LvVWVMqU=
+iij.ad.jp. 2176 IN RRSIG DNSKEY 8 3 86400 20201217151006 20201117151006 48472 iij.ad.jp. IvflOJImlu9iSR7LO80wv9o4FJsmy0UDB1gmIPzbqaTIa+z9ePG+tSYa z6HEck75SWWeZeXM0zbAuYX5/had7qTh+IFhO1m9GcIg9+KTdHrKR9jP 9DuVvk3IGJXTpO/L5fPfwsFPrSqfktO9ug6mnwrXshqKIk16NcTggpdd k22Wt1ksDDgZ/61p9j5Zk0CTR2t8/I/rwCcWc7zUsyLAF2rbcBufpsn/ PEz/qPnCgFRjSRkeDln0MaX9NH+48A5vYbthLhtGgc2pviIACc6EYaw2 HSggSD2zR1mJLy7P4APvgu1ijSKXpgF4SpRmhqeuYLkGMbvKnK87N5LK vL7VKg==
 """
 
 """ TEST RRSIG A RAW DATA
